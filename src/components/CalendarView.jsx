@@ -9,7 +9,11 @@ import {
   Plus, 
   Filter,
   CheckCircle2,
-  Circle
+  Circle,
+  ExternalLink,
+  Video,
+  MapPin,
+  RefreshCw
 } from 'lucide-react';
 import { 
   DAYS_OF_WEEK, 
@@ -26,16 +30,20 @@ import { DayDetailModal } from './DayDetailModal';
 export function CalendarView({ 
   todos = [], 
   routines = [], 
+  googleEvents = [],
+  isGCalConnected = false,
+  onOpenGCalModal,
   onToggleTodo, 
   onToggleRoutineForDate,
   onSkipRoutineForDate,
   onOpenNewTaskModal,
+  onPushTaskToGCal,
   onShowToast
 }) {
   const todayStr = getTodayString();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('month'); // 'month' | 'week' | 'day'
-  const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'todos' | 'routines'
+  const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'todos' | 'routines' | 'gcal'
   
   // Selected date for day detail modal
   const [selectedDayDate, setSelectedDayDate] = useState(null);
@@ -102,7 +110,11 @@ export function CalendarView({
       ? routines.filter(r => isRoutineActiveOnDate(r, dateStr))
       : [];
 
-    return { dayTodos, dayRoutines };
+    const dayGCal = (typeFilter === 'all' || typeFilter === 'gcal')
+      ? googleEvents.filter(g => g.dueDate === dateStr)
+      : [];
+
+    return { dayTodos, dayRoutines, dayGCal };
   };
 
   // Month Grid data
@@ -149,6 +161,25 @@ export function CalendarView({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Google Calendar Sync Action Button */}
+          <button
+            type="button"
+            className="pill-btn"
+            style={{
+              backgroundColor: isGCalConnected ? 'rgba(66, 133, 244, 0.12)' : 'var(--bg-surface)',
+              borderColor: isGCalConnected ? '#4285F4' : 'var(--border-subtle)',
+              color: isGCalConnected ? '#4285F4' : 'var(--text-secondary)',
+              gap: '6px',
+              fontWeight: 600,
+              fontSize: '0.78rem'
+            }}
+            onClick={onOpenGCalModal}
+            title="Google Calendar API Sync"
+          >
+            <CalendarIcon size={13} color="#4285F4" />
+            <span>{isGCalConnected ? `Google Calendar (${googleEvents.length})` : 'Sync Google Calendar'}</span>
+          </button>
+
           {/* Type Filter */}
           <div className="filter-pills" style={{ paddingBottom: 0 }}>
             <button
@@ -175,6 +206,16 @@ export function CalendarView({
             >
               Habits
             </button>
+            {googleEvents.length > 0 && (
+              <button
+                type="button"
+                className={`pill-btn ${typeFilter === 'gcal' ? 'active' : ''}`}
+                style={{ fontSize: '0.75rem', padding: '4px 10px', color: '#4285F4' }}
+                onClick={() => setTypeFilter('gcal')}
+              >
+                GCal ({googleEvents.length})
+              </button>
+            )}
           </div>
 
           {/* View Mode Toggle: Month, Week, Day */}
@@ -223,8 +264,8 @@ export function CalendarView({
             {monthDays.map((cell, idx) => {
               const { dateStr, dayNumber, isCurrentMonth } = cell;
               const isCellToday = dateStr === todayStr;
-              const { dayTodos, dayRoutines } = getItemsForDate(dateStr);
-              const totalItems = dayTodos.length + dayRoutines.length;
+              const { dayTodos, dayRoutines, dayGCal } = getItemsForDate(dateStr);
+              const totalItems = dayTodos.length + dayRoutines.length + dayGCal.length;
               const maxDisplay = 3;
 
               return (
@@ -248,19 +289,37 @@ export function CalendarView({
                   </div>
 
                   <div className="cal-chips-stack">
-                    {/* Render up to maxDisplay chips */}
+                    {/* Google Calendar events */}
+                    {dayGCal.slice(0, 1).map(g => (
+                      <div
+                        key={g.id}
+                        className="cal-chip"
+                        style={{
+                          backgroundColor: 'rgba(66, 133, 244, 0.15)',
+                          color: '#4285F4',
+                          borderLeft: '2px solid #4285F4'
+                        }}
+                        title={`Google Calendar: ${g.title}`}
+                      >
+                        <CalendarIcon size={10} style={{ flexShrink: 0 }} />
+                        <span>{g.title}</span>
+                      </div>
+                    ))}
+
+                    {/* Todos */}
                     {dayTodos.slice(0, 2).map(todo => (
                       <div
                         key={todo.id}
                         className={`cal-chip cal-chip-todo ${todo.completed ? 'completed' : ''}`}
                         title={`Task: ${todo.title}`}
                       >
-                        <CheckSquare size={10} style={{ flexShrink: 0 }} />
+                        <Check size={10} style={{ flexShrink: 0 }} />
                         <span>{todo.title}</span>
                       </div>
                     ))}
 
-                    {dayRoutines.slice(0, maxDisplay - Math.min(dayTodos.length, 2)).map(routine => {
+                    {/* Daily Routines */}
+                    {dayRoutines.slice(0, Math.max(0, maxDisplay - dayGCal.length - Math.min(dayTodos.length, 2))).map(routine => {
                       const isDone = !!routine.completedHistory?.[dateStr];
                       return (
                         <div
@@ -294,7 +353,7 @@ export function CalendarView({
         <div className="week-view-grid">
           {weekDays.map(day => {
             const { dateStr, dayName, dayNumber, isToday: isDayToday } = day;
-            const { dayTodos, dayRoutines } = getItemsForDate(dateStr);
+            const { dayTodos, dayRoutines, dayGCal } = getItemsForDate(dateStr);
 
             return (
               <div key={dateStr} className="week-day-column">
@@ -312,12 +371,62 @@ export function CalendarView({
                 </div>
 
                 <div className="week-col-tasks">
-                  {dayTodos.length === 0 && dayRoutines.length === 0 ? (
+                  {dayTodos.length === 0 && dayRoutines.length === 0 && dayGCal.length === 0 ? (
                     <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', textAlign: 'center', padding: '16px 0', fontStyle: 'italic' }}>
                       No items
                     </div>
                   ) : (
                     <>
+                      {/* Google Calendar events in Week column */}
+                      {dayGCal.map(g => (
+                        <div
+                          key={g.id}
+                          style={{
+                            padding: '8px',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'rgba(66, 133, 244, 0.08)',
+                            border: '1px solid rgba(66, 133, 244, 0.25)',
+                            fontSize: '0.8rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontWeight: 600, color: '#4285F4', fontSize: '0.72rem', textTransform: 'uppercase' }}>
+                              Google Cal
+                            </span>
+                            {g.dueTime && (
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                                {g.dueTime}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {g.title}
+                          </div>
+                          {g.hangoutLink && (
+                            <a
+                              href={g.hangoutLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '0.72rem',
+                                color: '#4285F4',
+                                textDecoration: 'none',
+                                marginTop: '2px'
+                              }}
+                            >
+                              <Video size={11} />
+                              <span>Join Meet</span>
+                            </a>
+                          )}
+                        </div>
+                      ))}
+
                       {/* Todos */}
                       {dayTodos.map(todo => (
                         <div
@@ -437,7 +546,7 @@ export function CalendarView({
                 {formatFriendlyDate(toDateString(currentDate), 'full')}
               </h3>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                Detailed schedule of tasks and routines for this day.
+                Detailed schedule of tasks, routines, and Google Calendar events.
               </p>
             </div>
 
@@ -453,9 +562,9 @@ export function CalendarView({
 
           {(() => {
             const activeDateStr = toDateString(currentDate);
-            const { dayTodos, dayRoutines } = getItemsForDate(activeDateStr);
+            const { dayTodos, dayRoutines, dayGCal } = getItemsForDate(activeDateStr);
 
-            if (dayTodos.length === 0 && dayRoutines.length === 0) {
+            if (dayTodos.length === 0 && dayRoutines.length === 0 && dayGCal.length === 0) {
               return (
                 <div className="empty-state">
                   <div className="empty-icon">
@@ -479,6 +588,73 @@ export function CalendarView({
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* Google Calendar events */}
+                {dayGCal.length > 0 && (
+                  <div>
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#4285F4', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CalendarIcon size={15} />
+                      <span>Google Calendar Events ({dayGCal.length})</span>
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {dayGCal.map(g => (
+                        <div
+                          key={g.id}
+                          className="todo-card"
+                          style={{
+                            borderColor: 'rgba(66, 133, 244, 0.3)',
+                            backgroundColor: 'rgba(66, 133, 244, 0.05)',
+                            padding: '12px 14px'
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div className="todo-title" style={{ color: 'var(--text-primary)' }}>{g.title}</div>
+                            {g.description && <div className="todo-desc">{g.description}</div>}
+                            <div className="todo-meta">
+                              {g.dueTime && (
+                                <span className="meta-chip num-tabular">
+                                  <Clock size={12} />
+                                  <span>{g.dueTime}</span>
+                                </span>
+                              )}
+                              {g.location && (
+                                <span className="meta-chip">
+                                  <MapPin size={12} />
+                                  <span>{g.location}</span>
+                                </span>
+                              )}
+                              {g.hangoutLink && (
+                                <a
+                                  href={g.hangoutLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="meta-chip"
+                                  style={{ color: '#4285F4' }}
+                                >
+                                  <Video size={12} />
+                                  <span>Join Google Meet</span>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+
+                          {g.htmlLink && (
+                            <a
+                              href={g.htmlLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn-icon"
+                              title="Open in Google Calendar"
+                              style={{ width: '30px', height: '30px', color: '#4285F4' }}
+                            >
+                              <ExternalLink size={14} />
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* One-time tasks */}
                 {dayTodos.length > 0 && (
                   <div>
@@ -593,10 +769,12 @@ export function CalendarView({
         dateStr={selectedDayDate}
         todos={todos}
         routines={routines}
+        googleEvents={googleEvents}
         onToggleTodo={onToggleTodo}
         onToggleRoutineForDate={onToggleRoutineForDate}
         onSkipRoutineForDate={onSkipRoutineForDate}
         onOpenNewTaskModal={onOpenNewTaskModal}
+        onPushTaskToGCal={onPushTaskToGCal}
       />
     </div>
   );

@@ -7,6 +7,7 @@ import { RoutineListView } from './components/RoutineListView';
 import { CalendarView } from './components/CalendarView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { TaskModal } from './components/TaskModal';
+import { GoogleCalendarModal } from './components/GoogleCalendarModal';
 import { Toast } from './components/Toast';
 import { 
   loadTodos, 
@@ -19,23 +20,30 @@ import {
   getInitialRoutines
 } from './utils/storage';
 import { getTodayString } from './utils/dateUtils';
+import { 
+  getCachedGoogleEvents, 
+  getActiveAccessToken, 
+  createGoogleCalendarEvent 
+} from './utils/googleCalendarService';
 
 export function App() {
   const [todos, setTodos] = useState(() => loadTodos());
   const [routines, setRoutines] = useState(() => loadRoutines());
   const [settings, setSettings] = useState(() => loadSettings());
+  const [googleEvents, setGoogleEvents] = useState(() => getCachedGoogleEvents());
   
   const [currentView, setCurrentView] = useState('todos'); // 'todos' | 'routines' | 'calendar' | 'analytics'
   const [activeCategory, setActiveCategory] = useState('all');
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Modal State
+  // Modal States
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     initialData: null,
     defaultType: 'todo',
     defaultDate: null
   });
+  const [isGCalModalOpen, setIsGCalModalOpen] = useState(false);
 
   // Apply theme attribute
   useEffect(() => {
@@ -212,6 +220,45 @@ export function App() {
     });
   };
 
+  // --- Handlers: Google Calendar API ---
+  const handlePushTaskToGCal = async (task) => {
+    const token = getActiveAccessToken();
+    if (!token && googleEvents.length === 0) {
+      setIsGCalModalOpen(true);
+      showToast('Connect Google Calendar to export tasks.');
+      return;
+    }
+
+    try {
+      if (token) {
+        const created = await createGoogleCalendarEvent({ accessToken: token, task });
+        setGoogleEvents(prev => [created, ...prev]);
+        showToast(`Synced "${task.title}" to Google Calendar!`);
+      } else {
+        // Preview mode simulation
+        const mockGCal = {
+          id: `gcal-synced-${Date.now()}`,
+          gcalId: `synced-${Date.now()}`,
+          title: task.title,
+          description: task.description || '',
+          dueDate: task.dueDate || getTodayString(),
+          dueTime: task.dueTime || null,
+          isGoogleEvent: true,
+          htmlLink: 'https://calendar.google.com',
+          location: 'Google Calendar',
+          category: 'google',
+          completed: false,
+          color: '#4285F4',
+          source: 'google-calendar'
+        };
+        setGoogleEvents(prev => [mockGCal, ...prev]);
+        showToast(`Synced "${task.title}" to Google Calendar!`);
+      }
+    } catch (err) {
+      showToast(`Sync failed: ${err.message}`);
+    }
+  };
+
   // --- Modal Openers ---
   const openNewTaskModal = (defaultType = 'todo', defaultDate = null) => {
     setModalConfig({
@@ -247,6 +294,8 @@ export function App() {
     setTodos(newTodos);
     setRoutines(newRoutines);
   };
+
+  const isGCalConnected = !!getActiveAccessToken() || googleEvents.length > 0;
 
   return (
     <div className="app-container">
@@ -302,10 +351,14 @@ export function App() {
             <CalendarView
               todos={todos}
               routines={routines}
+              googleEvents={googleEvents}
+              isGCalConnected={isGCalConnected}
+              onOpenGCalModal={() => setIsGCalModalOpen(true)}
               onToggleTodo={handleToggleTodo}
               onToggleRoutineForDate={handleToggleRoutineForDate}
               onSkipRoutineForDate={handleSkipRoutineForDate}
               onOpenNewTaskModal={openNewTaskModal}
+              onPushTaskToGCal={handlePushTaskToGCal}
               onShowToast={showToast}
             />
           )}
@@ -338,6 +391,15 @@ export function App() {
         initialData={modalConfig.initialData}
         defaultType={modalConfig.defaultType}
         defaultDate={modalConfig.defaultDate}
+      />
+
+      {/* Google Calendar API Modal */}
+      <GoogleCalendarModal
+        isOpen={isGCalModalOpen}
+        onClose={() => setIsGCalModalOpen(false)}
+        onEventsUpdated={(events) => setGoogleEvents(events)}
+        todos={todos}
+        onShowToast={showToast}
       />
 
       {/* Ephemeral Feedback Toast */}

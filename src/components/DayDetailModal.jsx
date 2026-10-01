@@ -8,7 +8,11 @@ import {
   Repeat, 
   CheckSquare, 
   Trash2,
-  CalendarOff
+  CalendarOff,
+  ExternalLink,
+  Video,
+  MapPin,
+  UploadCloud
 } from 'lucide-react';
 import { 
   CATEGORIES, 
@@ -23,13 +27,13 @@ export function DayDetailModal({
   dateStr, 
   todos = [], 
   routines = [],
+  googleEvents = [],
   onToggleTodo,
   onToggleRoutineForDate,
   onSkipRoutineForDate,
-  onOpenNewTaskModal
+  onOpenNewTaskModal,
+  onPushTaskToGCal
 }) {
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'todos' | 'routines'
-
   if (!isOpen || !dateStr) return null;
 
   const todayStr = getTodayString();
@@ -37,11 +41,8 @@ export function DayDetailModal({
 
   // Filter items for this date
   const dayTodos = todos.filter(t => t.dueDate === dateStr);
-  
-  // Routines active on this date
   const dayRoutines = routines.filter(r => isRoutineActiveOnDate(r, dateStr));
-  
-  // Routines skipped specifically on this date
+  const dayGoogleEvents = googleEvents.filter(g => g.dueDate === dateStr);
   const skippedRoutines = routines.filter(r => r.customExceptionDates?.includes(dateStr));
 
   return (
@@ -56,18 +57,18 @@ export function DayDetailModal({
               <div className="modal-title">{formatFriendlyDate(dateStr, 'full')}</div>
               {isCurrentToday && (
                 <span style={{ fontSize: '0.75rem', color: 'var(--accent-text)', fontWeight: 600 }}>
-                  Today's Agenda
+                  Today's Schedule
                 </span>
               )}
             </div>
           </div>
-          <button type="button" className="btn-icon" onClick={onClose}>
+          <button type="button" className="btn-icon" onClick={onClose} aria-label="Close modal">
             <X size={18} />
           </button>
         </div>
 
         <div className="modal-body">
-          {/* Quick Add for this specific date */}
+          {/* Quick Actions */}
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
               type="button"
@@ -94,6 +95,104 @@ export function DayDetailModal({
               <span>New Habit</span>
             </button>
           </div>
+
+          {/* Section: Google Calendar Events */}
+          {dayGoogleEvents.length > 0 && (
+            <div>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                marginBottom: '8px',
+                paddingBottom: '4px',
+                borderBottom: '1px solid var(--border-subtle)'
+              }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#4285F4', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CalendarIcon size={14} />
+                  <span>Google Calendar Events ({dayGoogleEvents.length})</span>
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {dayGoogleEvents.map(event => (
+                  <div
+                    key={event.id}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'rgba(66, 133, 244, 0.08)',
+                      border: '1px solid rgba(66, 133, 244, 0.25)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
+                      gap: '8px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                        {event.title}
+                      </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {event.dueTime && (
+                          <span className="num-tabular" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Clock size={12} />
+                            <span>{event.dueTime}</span>
+                          </span>
+                        )}
+                        {event.location && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <MapPin size={12} />
+                            <span>{event.location}</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {event.description && (
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          {event.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                      {event.hangoutLink && (
+                        <a
+                          href={event.hangoutLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="pill-btn"
+                          style={{
+                            backgroundColor: '#4285F4',
+                            color: '#ffffff',
+                            fontSize: '0.72rem',
+                            padding: '3px 8px',
+                            gap: '4px',
+                            textDecoration: 'none'
+                          }}
+                        >
+                          <Video size={11} />
+                          <span>Meet</span>
+                        </a>
+                      )}
+
+                      {event.htmlLink && (
+                        <a
+                          href={event.htmlLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ fontSize: '0.72rem', color: '#4285F4', display: 'flex', alignItems: 'center', gap: '3px' }}
+                        >
+                          <span>Open GCal</span>
+                          <ExternalLink size={10} />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Section: One-time Todos */}
           <div>
@@ -156,9 +255,22 @@ export function DayDetailModal({
                         </div>
                       </div>
 
-                      <span className="meta-chip" style={{ color: cat.color }}>
-                        {cat.name}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="meta-chip" style={{ color: cat.color }}>
+                          {cat.name}
+                        </span>
+                        {onPushTaskToGCal && (
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            style={{ width: '28px', height: '28px' }}
+                            title="Export task to Google Calendar"
+                            onClick={() => onPushTaskToGCal(todo)}
+                          >
+                            <UploadCloud size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
